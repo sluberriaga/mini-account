@@ -1,7 +1,8 @@
 # Account
 
 This project is a webapp that manages an account balance and transactions.
-Transactions can be credits or debits anda are stored on a ledger for traceability.
+
+Transactions can be credits or debits and are stored on a in-memory ledger.
 
 ## Instructions
 

@@ -7,12 +7,12 @@ Transactions can be credits or debits anda are stored on a ledger for traceabili
 
 In order to run the app simply type
 ```sh
-$ make run
+$ ./build/account
 ```
 
 In order to build the app just run 
 ```sh
-$ make build
+$ make
 ```
 
 ## API

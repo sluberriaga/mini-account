@@ -44,7 +44,7 @@ func main() {
 	{
 		apiRouter.POST("/account/transaction", accountService.PostTransactionHandler)
 		apiRouter.GET("/account/balance", accountService.GetBalance)
-		apiRouter.GET("/account/transactions", accountService.GetTransactions)
+		apiRouter.GET("/account/transaction", accountService.GetTransactions)
 		apiRouter.GET("/account/transaction/*id", accountService.GetTransactionByID)
 	}
 

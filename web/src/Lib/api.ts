@@ -20,7 +20,7 @@ export const fetchBalance = (): Promise<Balance> => (
 );
 
 export const fetchTransactions = (offset: number, limit: number): Promise<Transaction[]> => (
-    http(`/api/account/transactions?offset=${offset}&limit=${limit}`, { method: "GET" })
+    http(`/api/account/transaction?offset=${offset}&limit=${limit}`, { method: "GET" })
 );
 
 export const searchTransaction = (id: string): Promise<Transaction> => (

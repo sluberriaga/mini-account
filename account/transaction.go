@@ -14,6 +14,20 @@ type Transaction struct {
 	Amount        int64     `json:"amount"`
 }
 
+func byEffectiveDateComparator(a, b interface{}) int {
+	trxa := a.(*Transaction)
+	trxb := b.(*Transaction)
+
+	switch {
+	case trxa.EffectiveDate.Before(trxb.EffectiveDate):
+		return 1
+	case trxb.EffectiveDate.Before(trxa.EffectiveDate):
+		return -1
+	default:
+		return 0
+	}
+}
+
 func (t *Transaction) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
 		ID            string    `json:"id"`

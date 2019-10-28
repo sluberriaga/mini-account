@@ -1,7 +1,10 @@
 package account
 
 import (
+	"errors"
 	"fmt"
+	"github.com/emirpasic/gods/maps/treebidimap"
+	"github.com/emirpasic/gods/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gopkg.in/go-playground/validator.v9"
@@ -12,17 +15,25 @@ import (
 	"time"
 )
 
+var TransactionParseError = errors.New("error_parsing_transaction")
+var TransactionNotFoundError = errors.New("transaction_not_found_error")
+
 type Account struct {
-	mu               sync.RWMutex
-	Total            uint64
-	Transactions     []Transaction
-	TransactionsByID map[uuid.UUID]*Transaction
+	mu           sync.RWMutex
+	Total        uint64
+	Transactions *treebidimap.Map
+}
+
+func uuidComparator(a, b interface{}) int {
+	uuidA := a.(uuid.UUID)
+	uuidB := b.(uuid.UUID)
+
+	return utils.StringComparator(uuidA.String(), uuidB.String())
 }
 
 func New() Account {
 	return Account{
-		Transactions:     []Transaction{},
-		TransactionsByID: map[uuid.UUID]*Transaction{},
+		Transactions: treebidimap.NewWith(uuidComparator, byEffectiveDateComparator),
 	}
 }
 
@@ -41,8 +52,7 @@ func (a *Account) ProcessTransaction(transaction *Transaction) bool {
 	}
 
 	transaction.EffectiveDate = time.Now()
-	a.Transactions = append(a.Transactions, *transaction)
-	a.TransactionsByID[transaction.ID] = transaction
+	a.Transactions.Put(transaction.ID, transaction)
 
 	return true
 }
@@ -54,38 +64,50 @@ func (a Account) GetBalance() uint64 {
 	return a.Total
 }
 
-func (a Account) GetTransactions(offset, limit int) []Transaction {
+func (a Account) GetTransactions(offset, limit int) ([]Transaction, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
 	boundedLimit := limit
 	boundedOffset := offset
-	if offset >= len(a.Transactions) {
-		boundedOffset = len(a.Transactions)
+	if offset >= a.Transactions.Size() {
+		boundedOffset = a.Transactions.Size()
 		boundedLimit = 0
-	} else if limit+offset >= len(a.Transactions) {
-		boundedLimit = len(a.Transactions) - boundedOffset
+	} else if limit+offset >= a.Transactions.Size() {
+		boundedLimit = a.Transactions.Size() - boundedOffset
 	}
 
-	transactions := make([]Transaction, boundedLimit)
-	copy(transactions, a.Transactions[len(a.Transactions)-boundedOffset-boundedLimit:len(a.Transactions)-boundedOffset])
+	rawTransactions := a.Transactions.Values()
+	initial := boundedOffset
+	final := boundedOffset + boundedLimit
 
-	// Reverse transactions
-	for i, j := 0, len(transactions)-1; i < j; i, j = i+1, j-1 {
-		transactions[i], transactions[j] = transactions[j], transactions[i]
+	rawTransactions = rawTransactions[initial:final]
+	transactions := make([]Transaction, 0)
+	for _, rawTransaction := range rawTransactions {
+		trx, ok := rawTransaction.(*Transaction)
+		if !ok {
+			return nil, TransactionParseError
+		}
+
+		transactions = append(transactions, *trx)
 	}
-	return transactions
+
+	return transactions, nil
 }
 
-func (a Account) GetTransactionByID(uuid uuid.UUID) *Transaction {
+func (a Account) GetTransactionByID(uuid uuid.UUID) (Transaction, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	if transaction, ok := a.TransactionsByID[uuid]; ok {
-		return transaction
+	if rawTransaction, found := a.Transactions.Get(uuid); found {
+		if transaction, ok := rawTransaction.(*Transaction); ok {
+			return *transaction, nil
+		}
+
+		return Transaction{}, TransactionParseError
 	}
 
-	return nil
+	return Transaction{}, TransactionNotFoundError
 }
 
 type Service struct {
@@ -107,7 +129,7 @@ func (s Service) PostTransactionHandler(c *gin.Context) {
 
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 			"message": "Input validation failed!",
-			"code": "input_validation",
+			"code":    "input_validation",
 			"errors":  errors,
 		})
 		return
@@ -123,7 +145,7 @@ func (s Service) PostTransactionHandler(c *gin.Context) {
 
 	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 		"message": "Insufficient balance!",
-		"code":  "insufficient_balance",
+		"code":    "insufficient_balance",
 	})
 	return
 }
@@ -147,7 +169,7 @@ func (s Service) GetTransactions(c *gin.Context) {
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 			"message": "Offset malformed, please input number",
-			"code":  "invalid_offset",
+			"code":    "invalid_offset",
 		})
 		return
 	}
@@ -161,12 +183,21 @@ func (s Service) GetTransactions(c *gin.Context) {
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 			"message": "Limit malformed, please input number",
-			"code":  "invalid_limit",
+			"code":    "invalid_limit",
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, s.account.GetTransactions(offset, limit))
+	transactions, err := s.account.GetTransactions(offset, limit)
+	if err == TransactionParseError {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"message": "Malformed transactions",
+			"code":    "invalid_transactions",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, transactions)
 	return
 }
 
@@ -177,20 +208,28 @@ func (s Service) GetTransactionByID(c *gin.Context) {
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
 			"message": fmt.Sprintf("Invalid uuid: %s", idString),
-			"code":  err.Error(),
+			"code":    err.Error(),
 		})
 		return
 	}
 
-	transaction := s.account.GetTransactionByID(id)
-	if transaction == nil {
+	transaction, err := s.account.GetTransactionByID(id)
+	if err == TransactionNotFoundError {
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
 			"message": "Not found!",
-			"code":  "not_found",
+			"code":    "not_found",
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, *transaction)
+	if err == TransactionParseError {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"message": "Bad request!",
+			"code":    err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, transaction)
 	return
 }

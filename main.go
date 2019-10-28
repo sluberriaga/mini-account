@@ -39,7 +39,7 @@ func main() {
 	accountService := account.NewService(mainAccount)
 
 	router.Use(static.Serve("/", static.LocalFile("./static", true)))
-
+	router.RedirectTrailingSlash = false
 	apiRouter := router.Group("/api")
 	{
 		apiRouter.POST("/account/transaction", accountService.PostTransactionHandler)

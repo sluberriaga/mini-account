@@ -23,15 +23,15 @@ const typeColors = {
     [TransactionType.Debit]: "red",
 };
 
-class TransactionDetail extends React.Component<{transaction: Transaction}, {opened: boolean}> {
-    state = { opened: false };
+class TransactionDetail extends React.Component<{transaction: Transaction}, {opened: string|null}> {
+    state = { opened: null };
 
     render () {
         const { props: { transaction }, state: { opened } } = this;
 
         return (
-            <div className={`accordion-item, ${opened && 'accordion-item--opened'}`}>
-                <div onClick={() => { this.setState(state => ({ opened: !state.opened })) }}
+            <div className={`accordion-item, ${opened == transaction.id && 'accordion-item--opened'}`}>
+                <div onClick={() => { this.setState(state => ({ opened: state.opened === null ? transaction.id : null })) }}
                      className={'accordion-item__line'}>
                     <h5 className={'accordion-item__title'}>
                         {'   '}
